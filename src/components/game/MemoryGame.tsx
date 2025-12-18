@@ -39,7 +39,7 @@ const shuffleArray = <T,>(array: T[]): T[] => {
   return newArray;
 };
 
-const MemoryGame = () => {
+const MemoryGame = ({ onBack }: { onBack: () => void }) => {
   const [difficulty, setDifficulty] = useState<Difficulty>("easy");
   const [cards, setCards] = useState<Card[]>([]);
   const [flippedCards, setFlippedCards] = useState<number[]>([]);
@@ -183,6 +183,9 @@ const MemoryGame = () => {
           >
             <RotateCcw className="w-5 h-5" />
             Reiniciar
+          </button>
+          <button onClick={onBack} className="btn-game bg-muted text-foreground">
+            Voltar ao Menu
           </button>
         </div>
 
