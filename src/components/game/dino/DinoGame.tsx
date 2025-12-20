@@ -27,9 +27,11 @@ export function DinoGame({ onBack }: DinoGameProps) {
 
   useEffect(() => {
     if (isGameOver && score > 0 && !hasCheckedAchievements) {
-      const unlocked = checkAndUnlock({ game: "dino", score });
-      if (unlocked.length > 0) setUnlockedAchievement(unlocked[0]);
       setHasCheckedAchievements(true);
+      
+      checkAndUnlock({ game: "dino", score }).then((unlocked) => {
+        if (unlocked.length > 0) setUnlockedAchievement(unlocked[0]);
+      });
 
       if (isAuthenticated && profile && score >= 50) {
         addScore({

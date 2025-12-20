@@ -1,36 +1,22 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { PlayerAchievement, PlayerStats } from "@/types/achievements";
-import { ACHIEVEMENTS, ACHIEVEMENTS_STORAGE_KEY, PLAYER_STATS_STORAGE_KEY } from "@/constants/achievements";
-import { useLocalStorage } from "./useLocalStorage";
+import { ACHIEVEMENTS } from "@/constants/achievements";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "./useAuth";
 
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                         useAchievements                                    ║
  * ╠═══════════════════════════════════════════════════════════════════════════╣
- * ║ Hook que gerencia o sistema de conquistas.                                ║
+ * ║ Hook que gerencia o sistema de conquistas POR USUÁRIO.                    ║
  * ║                                                                           ║
  * ║ RESPONSABILIDADES:                                                        ║
  * ║ - Manter estatísticas do jogador (jogos, recordes)                       ║
  * ║ - Verificar condições de desbloqueio                                     ║
- * ║ - Persistir conquistas desbloqueadas                                     ║
- * ║                                                                           ║
- * ║ COMO FUNCIONA:                                                            ║
- * ║ 1. Jogador termina uma partida                                           ║
- * ║ 2. Componente chama checkAndUnlock({ game, score, moves... })           ║
- * ║ 3. Hook verifica TODAS as conquistas não desbloqueadas                   ║
- * ║ 4. Se condição atendida → desbloqueia e salva                           ║
- * ║ 5. Retorna lista de IDs desbloqueados (para mostrar toast)              ║
- * ║                                                                           ║
- * ║ USO:                                                                      ║
- * ║ const { checkAndUnlock, getProgress } = useAchievements();               ║
- * ║ const unlocked = checkAndUnlock({ game: "snake", score: 150 });         ║
+ * ║ - Persistir conquistas no banco de dados por usuário                     ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 
-/**
- * Estatísticas iniciais do jogador.
- * Usadas quando não há dados salvos.
- */
 const DEFAULT_STATS: PlayerStats = {
   totalGamesPlayed: 0,
   memoryGamesPlayed: 0,
@@ -44,157 +30,197 @@ const DEFAULT_STATS: PlayerStats = {
 };
 
 export function useAchievements() {
+  const { user, isAuthenticated } = useAuth();
+  const [unlockedAchievements, setUnlockedAchievements] = useState<PlayerAchievement[]>([]);
+  const [stats, setStats] = useState<PlayerStats>(DEFAULT_STATS);
+  const [isLoading, setIsLoading] = useState(true);
+
   // ═══════════════════════════════════════════════════════════════════════════
-  // PERSISTÊNCIA
+  // CARREGAR DADOS DO BANCO
   // ═══════════════════════════════════════════════════════════════════════════
-  
-  /**
-   * Lista de conquistas desbloqueadas.
-   * Formato: [{ achievementId: "first_win", unlockedAt: "2024-01-15T..." }, ...]
-   */
-  const [unlockedAchievements, setUnlockedAchievements] = useLocalStorage<PlayerAchievement[]>(
-    ACHIEVEMENTS_STORAGE_KEY,
-    []
-  );
-  
-  /**
-   * Estatísticas acumuladas do jogador.
-   * Usadas para verificar conquistas baseadas em progresso.
-   */
-  const [stats, setStats] = useLocalStorage<PlayerStats>(
-    PLAYER_STATS_STORAGE_KEY,
-    DEFAULT_STATS
-  );
+
+  useEffect(() => {
+    if (!user) {
+      setUnlockedAchievements([]);
+      setStats(DEFAULT_STATS);
+      setIsLoading(false);
+      return;
+    }
+
+    const fetchData = async () => {
+      setIsLoading(true);
+      
+      // Busca conquistas do usuário
+      const { data: achievements } = await supabase
+        .from("user_achievements")
+        .select("achievement_id, unlocked_at")
+        .eq("user_id", user.id);
+      
+      if (achievements) {
+        setUnlockedAchievements(
+          achievements.map(a => ({
+            achievementId: a.achievement_id,
+            unlockedAt: a.unlocked_at
+          }))
+        );
+      }
+
+      // Busca estatísticas do usuário
+      const { data: userStats } = await supabase
+        .from("user_stats")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      
+      if (userStats) {
+        setStats({
+          totalGamesPlayed: userStats.total_games_played,
+          memoryGamesPlayed: userStats.memory_games_played,
+          memoryBestMoves: (userStats.memory_best_moves as Record<string, number>) || {},
+          memoryBestTime: (userStats.memory_best_time as Record<string, number>) || {},
+          snakeGamesPlayed: userStats.snake_games_played,
+          snakeBestScore: userStats.snake_best_score,
+          snakeMaxLength: userStats.snake_max_length,
+          dinoGamesPlayed: userStats.dino_games_played,
+          dinoBestScore: userStats.dino_best_score,
+        });
+      }
+      
+      setIsLoading(false);
+    };
+
+    fetchData();
+  }, [user]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // HELPERS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Set de IDs já desbloqueados para busca O(1).
-   * Recalcula apenas quando unlockedAchievements muda.
-   */
   const unlockedIds = useMemo(
     () => new Set(unlockedAchievements.map(a => a.achievementId)),
     [unlockedAchievements]
   );
 
   /**
-   * Desbloqueia uma conquista específica.
-   * 
-   * @param achievementId - ID da conquista (ex: "first_win")
-   * @returns true se desbloqueou, false se já estava desbloqueada
+   * Desbloqueia uma conquista no banco de dados
    */
-  const unlockAchievement = useCallback((achievementId: string) => {
-    // Já desbloqueada? Ignora
-    if (unlockedIds.has(achievementId)) return false;
+  const unlockAchievement = useCallback(async (achievementId: string) => {
+    if (!user || unlockedIds.has(achievementId)) return false;
     
-    // Adiciona à lista com timestamp
-    setUnlockedAchievements(prev => [
-      ...prev,
-      { achievementId, unlockedAt: new Date().toISOString() }
-    ]);
-    return true;
-  }, [unlockedIds, setUnlockedAchievements]);
+    const { error } = await supabase
+      .from("user_achievements")
+      .insert({
+        user_id: user.id,
+        achievement_id: achievementId
+      });
+    
+    if (!error) {
+      setUnlockedAchievements(prev => [
+        ...prev,
+        { achievementId, unlockedAt: new Date().toISOString() }
+      ]);
+      return true;
+    }
+    return false;
+  }, [user, unlockedIds]);
+
+  /**
+   * Salva estatísticas no banco de dados
+   */
+  const saveStats = useCallback(async (newStats: PlayerStats) => {
+    if (!user) return;
+
+    const statsData = {
+      user_id: user.id,
+      total_games_played: newStats.totalGamesPlayed,
+      memory_games_played: newStats.memoryGamesPlayed,
+      memory_best_moves: newStats.memoryBestMoves,
+      memory_best_time: newStats.memoryBestTime,
+      snake_games_played: newStats.snakeGamesPlayed,
+      snake_best_score: newStats.snakeBestScore,
+      snake_max_length: newStats.snakeMaxLength,
+      dino_games_played: newStats.dinoGamesPlayed,
+      dino_best_score: newStats.dinoBestScore,
+    };
+
+    await supabase
+      .from("user_stats")
+      .upsert(statsData, { onConflict: "user_id" });
+  }, [user]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // VERIFICAÇÃO E DESBLOQUEIO
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /** 
-   * Verifica e desbloqueia conquistas baseado em um evento de jogo.
-   * 
-   * ALGORITMO:
-   * 1. Atualiza estatísticas do jogador
-   * 2. Para cada conquista NÃO desbloqueada:
-   *    - Verifica se a condição foi atendida
-   *    - Se sim, desbloqueia
-   * 3. Retorna array de IDs desbloqueados
-   * 
-   * @param event - Dados do evento (jogo, score, moves, time, difficulty)
-   * @returns Array de IDs das conquistas desbloqueadas
-   */
-  const checkAndUnlock = useCallback((event: {
+  const checkAndUnlock = useCallback(async (event: {
     game: "memory" | "snake" | "dino";
     score?: number;
     moves?: number;
     time?: number;
     difficulty?: string;
   }) => {
+    if (!isAuthenticated || !user) return [];
+
     const newlyUnlocked: string[] = [];
     
-    // ═══ ATUALIZA ESTATÍSTICAS ═══
-    setStats(prev => {
-      const updated = { ...prev };
-      updated.totalGamesPlayed++;
-      
-      if (event.game === "memory") {
-        updated.memoryGamesPlayed++;
-        // Atualiza melhor score de movimentos
-        if (event.moves && event.difficulty) {
-          const currentBest = updated.memoryBestMoves[event.difficulty];
-          if (!currentBest || event.moves < currentBest) {
-            updated.memoryBestMoves = { ...updated.memoryBestMoves, [event.difficulty]: event.moves };
-          }
-        }
-        // Atualiza melhor tempo
-        if (event.time && event.difficulty) {
-          const currentBest = updated.memoryBestTime[event.difficulty];
-          if (!currentBest || event.time < currentBest) {
-            updated.memoryBestTime = { ...updated.memoryBestTime, [event.difficulty]: event.time };
-          }
+    // Atualiza estatísticas
+    const updatedStats = { ...stats };
+    updatedStats.totalGamesPlayed++;
+    
+    if (event.game === "memory") {
+      updatedStats.memoryGamesPlayed++;
+      if (event.moves && event.difficulty) {
+        const currentBest = updatedStats.memoryBestMoves[event.difficulty];
+        if (!currentBest || event.moves < currentBest) {
+          updatedStats.memoryBestMoves = { ...updatedStats.memoryBestMoves, [event.difficulty]: event.moves };
         }
       }
-      
-      if (event.game === "snake") {
-        updated.snakeGamesPlayed++;
-        if (event.score && event.score > updated.snakeBestScore) {
-          updated.snakeBestScore = event.score;
+      if (event.time && event.difficulty) {
+        const currentBest = updatedStats.memoryBestTime[event.difficulty];
+        if (!currentBest || event.time < currentBest) {
+          updatedStats.memoryBestTime = { ...updatedStats.memoryBestTime, [event.difficulty]: event.time };
         }
       }
+    }
+    
+    if (event.game === "snake") {
+      updatedStats.snakeGamesPlayed++;
+      if (event.score && event.score > updatedStats.snakeBestScore) {
+        updatedStats.snakeBestScore = event.score;
+      }
+    }
 
-      if (event.game === "dino") {
-        updated.dinoGamesPlayed++;
-        if (event.score && event.score > updated.dinoBestScore) {
-          updated.dinoBestScore = event.score;
-        }
+    if (event.game === "dino") {
+      updatedStats.dinoGamesPlayed++;
+      if (event.score && event.score > updatedStats.dinoBestScore) {
+        updatedStats.dinoBestScore = event.score;
       }
-      
-      return updated;
-    });
+    }
+    
+    setStats(updatedStats);
+    await saveStats(updatedStats);
 
-    // ═══ VERIFICA CADA CONQUISTA ═══
-    ACHIEVEMENTS.forEach(achievement => {
-      // Já desbloqueada? Pula
-      if (unlockedIds.has(achievement.id)) return;
+    // Verifica cada conquista
+    for (const achievement of ACHIEVEMENTS) {
+      if (unlockedIds.has(achievement.id)) continue;
       
       const { condition } = achievement;
       let shouldUnlock = false;
 
-      /**
-       * TIPOS DE CONDIÇÃO:
-       * - games_played: jogou X vezes (geral ou por jogo)
-       * - moves: completou em X movimentos ou menos
-       * - time: completou em X segundos ou menos
-       * - score: atingiu X pontos
-       */
       switch (condition.type) {
         case "games_played":
           if (!condition.game) {
-            // Condição geral (qualquer jogo conta)
-            shouldUnlock = stats.totalGamesPlayed + 1 >= condition.value;
+            shouldUnlock = updatedStats.totalGamesPlayed >= condition.value;
           } else if (condition.game === event.game) {
-            // Condição específica de um jogo
             let count = 0;
-            if (event.game === "memory") count = stats.memoryGamesPlayed + 1;
-            else if (event.game === "snake") count = stats.snakeGamesPlayed + 1;
-            else if (event.game === "dino") count = stats.dinoGamesPlayed + 1;
+            if (event.game === "memory") count = updatedStats.memoryGamesPlayed;
+            else if (event.game === "snake") count = updatedStats.snakeGamesPlayed;
+            else if (event.game === "dino") count = updatedStats.dinoGamesPlayed;
             shouldUnlock = count >= condition.value;
           }
           break;
 
         case "moves":
-          // Apenas para Memory: completar em poucos movimentos
           if (condition.game === "memory" && event.game === "memory" && event.moves) {
             if (!condition.difficulty || condition.difficulty === event.difficulty) {
               shouldUnlock = event.moves <= condition.value;
@@ -203,14 +229,12 @@ export function useAchievements() {
           break;
 
         case "time":
-          // Completar em pouco tempo
           if (condition.game === "memory" && event.game === "memory" && event.time) {
             shouldUnlock = event.time <= condition.value;
           }
           break;
 
         case "score":
-          // Atingir pontuação mínima
           if (condition.game === "snake" && event.game === "snake" && event.score) {
             shouldUnlock = event.score >= condition.value;
           }
@@ -220,26 +244,21 @@ export function useAchievements() {
           break;
       }
 
-      // Desbloqueia se condição atendida
       if (shouldUnlock) {
-        const wasUnlocked = unlockAchievement(achievement.id);
+        const wasUnlocked = await unlockAchievement(achievement.id);
         if (wasUnlocked) {
           newlyUnlocked.push(achievement.id);
         }
       }
-    });
+    }
 
     return newlyUnlocked;
-  }, [stats, unlockedIds, unlockAchievement, setStats]);
+  }, [stats, unlockedIds, unlockAchievement, saveStats, isAuthenticated, user]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // FUNÇÕES DE CONSULTA
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Retorna progresso geral das conquistas.
-   * Usado para mostrar barra de progresso.
-   */
   const getProgress = useCallback(() => {
     const total = ACHIEVEMENTS.length;
     const unlocked = unlockedAchievements.length;
@@ -250,10 +269,6 @@ export function useAchievements() {
     };
   }, [unlockedAchievements.length]);
 
-  /**
-   * Retorna lista de conquistas com status de desbloqueio.
-   * Usada para renderizar a lista de conquistas.
-   */
   const getAchievementsWithStatus = useCallback(() => {
     return ACHIEVEMENTS.map(achievement => ({
       ...achievement,
@@ -262,24 +277,15 @@ export function useAchievements() {
     }));
   }, [unlockedIds, unlockedAchievements]);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RETORNO DO HOOK
-  // ═══════════════════════════════════════════════════════════════════════════
-
   return {
-    /** Estatísticas do jogador */
     stats,
-    /** Lista de conquistas desbloqueadas */
     unlockedAchievements,
-    /** Desbloqueia uma conquista manualmente */
     unlockAchievement,
-    /** Verifica e desbloqueia conquistas baseado em evento */
     checkAndUnlock,
-    /** Retorna progresso (total, unlocked, percentage) */
     getProgress,
-    /** Retorna conquistas com status */
     getAchievementsWithStatus,
-    /** Verifica se uma conquista específica está desbloqueada */
     isUnlocked: (id: string) => unlockedIds.has(id),
+    isLoading,
+    isAuthenticated,
   };
 }
