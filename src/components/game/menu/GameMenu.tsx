@@ -40,10 +40,18 @@ const GAMES = [
   {
     id: "dino" as const,
     title: "Dino Runner",
-    description: "Pule os obstáculos e sobreviva! Estilo Chrome offline.",
+    description: "Pule e abaixe para desviar dos obstáculos!",
     icon: Gamepad2,
     colorClass: "primary",
-    tags: ["Endless runner", "Velocidade crescente"],
+    tags: ["Pássaros voadores", "Abaixar"],
+  },
+  {
+    id: "tetris" as const,
+    title: "Tetris",
+    description: "Encaixe as peças e limpe linhas. Clássico eterno!",
+    icon: Gamepad2,
+    colorClass: "secondary",
+    tags: ["Níveis", "Hard drop"],
   },
 ];
 

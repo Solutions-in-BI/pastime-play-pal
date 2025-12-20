@@ -4,6 +4,7 @@ import {
   DINO_X,
   DINO_WIDTH,
   DINO_HEIGHT,
+  DINO_DUCK_HEIGHT,
   JUMP_FORCE,
   GRAVITY,
   INITIAL_SPEED,
@@ -17,6 +18,11 @@ import {
   CACTUS_HEIGHT,
   CACTUS_LARGE_WIDTH,
   CACTUS_LARGE_HEIGHT,
+  BIRD_WIDTH,
+  BIRD_HEIGHT,
+  BIRD_LOW_Y,
+  BIRD_HIGH_Y,
+  BIRD_MIN_SCORE,
   DINO_CANVAS_WIDTH,
   DINO_STORAGE_KEY,
   Obstacle,
@@ -30,21 +36,10 @@ import { useLocalStorage } from "./useLocalStorage";
  * ╠═══════════════════════════════════════════════════════════════════════════╣
  * ║ Hook que encapsula TODA a lógica do Dino Runner.                          ║
  * ║                                                                           ║
- * ║ CONCEITOS DE FÍSICA SIMULADA:                                             ║
- * ║ - Gravidade: força constante puxando para baixo                          ║
- * ║ - Velocidade: acumula com gravidade, aplicada à posição                  ║
- * ║ - Pulo: aplica velocidade negativa (para cima)                           ║
- * ║                                                                           ║
- * ║ GAME LOOP:                                                                ║
- * ║ 1. Atualiza posição do dino (física)                                     ║
- * ║ 2. Move obstáculos para a esquerda                                       ║
- * ║ 3. Remove obstáculos fora da tela                                        ║
- * ║ 4. Gera novos obstáculos                                                 ║
- * ║ 5. Verifica colisões                                                      ║
- * ║ 6. Incrementa pontuação                                                   ║
- * ║                                                                           ║
- * ║ USO:                                                                      ║
- * ║ const { dinoY, obstacles, jump, score } = useDinoGame();                 ║
+ * ║ NOVIDADES:                                                                ║
+ * ║ - Pássaros voando em diferentes alturas                                   ║
+ * ║ - Mecânica de abaixar (precisa para pássaros altos)                      ║
+ * ║ - Pássaros aparecem após 100 pontos                                       ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 
@@ -53,88 +48,50 @@ export function useDinoGame() {
   // ESTADO DO JOGO
   // ═══════════════════════════════════════════════════════════════════════════
   
-  /** Jogo está rodando? */
   const [isPlaying, setIsPlaying] = useState(false);
-  
-  /** Jogador morreu? */
   const [isGameOver, setIsGameOver] = useState(false);
-  
-  /** Pontuação atual (incrementa a cada frame) */
   const [score, setScore] = useState(0);
-  
-  /**
-   * Velocidade dos obstáculos (pixels por frame).
-   * Aumenta a cada 100 pontos para dificultar.
-   */
   const [speed, setSpeed] = useState(INITIAL_SPEED);
   
   // ═══════════════════════════════════════════════════════════════════════════
   // ESTADO DO DINOSSAURO
   // ═══════════════════════════════════════════════════════════════════════════
   
-  /**
-   * Posição Y do dinossauro (vertical).
-   * Y = 0 é o topo da tela. Maior Y = mais embaixo.
-   * GROUND_Y - DINO_HEIGHT = posição no chão
-   */
   const [dinoY, setDinoY] = useState(GROUND_Y - DINO_HEIGHT);
-  
-  /** Indica se está no ar (animação diferente) */
   const [isJumping, setIsJumping] = useState(false);
-  
-  /**
-   * Velocidade vertical atual.
-   * - Negativa: subindo
-   * - Positiva: descendo
-   * - Zero: parado no chão
-   * 
-   * Usamos Ref porque muda a cada frame e não precisa re-render.
-   */
+  const [isDucking, setIsDucking] = useState(false);
   const velocityRef = useRef(0);
   
   // ═══════════════════════════════════════════════════════════════════════════
-  // OBSTÁCULOS
+  // OBSTÁCULOS E PERSISTÊNCIA
   // ═══════════════════════════════════════════════════════════════════════════
   
-  /**
-   * Array de obstáculos na tela.
-   * Cada obstáculo tem: x (posição), type, width, height
-   */
   const [obstacles, setObstacles] = useState<Obstacle[]>([]);
-  
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PERSISTÊNCIA E REFS
-  // ═══════════════════════════════════════════════════════════════════════════
-  
-  /** Recorde salvo no localStorage */
   const [bestScore, setBestScore] = useLocalStorage(DINO_STORAGE_KEY, 0);
-  
-  /** Referência para cancelar o game loop */
   const gameLoopRef = useRef<number | null>(null);
-  
-  /** Último score em que aumentamos a velocidade (evita duplicar) */
   const lastScoreCheckRef = useRef(0);
+  const currentScoreRef = useRef(0);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // GERAÇÃO DE OBSTÁCULOS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Cria um novo obstáculo.
-   * 
-   * Tipos disponíveis:
-   * - small: cacto pequeno
-   * - large: cacto grande
-   * - double: dois cactos juntos
-   * 
-   * @param startX - Posição X inicial (geralmente fora da tela à direita)
-   */
   const generateObstacle = useCallback((startX: number): Obstacle => {
-    const types: ObstacleType[] = ["small", "large", "double"];
+    const currentScore = currentScoreRef.current;
+    
+    // Tipos disponíveis baseado na pontuação
+    let types: ObstacleType[] = ["small", "large", "double"];
+    
+    // Adiciona pássaros após certa pontuação
+    if (currentScore >= BIRD_MIN_SCORE) {
+      types = ["small", "large", "double", "bird_low", "bird_high"];
+    }
+    
     const type = types[Math.floor(Math.random() * types.length)];
     
     let width: number;
     let height: number;
+    let y: number | undefined;
     
     switch (type) {
       case "small":
@@ -149,32 +106,39 @@ export function useDinoGame() {
         width = CACTUS_WIDTH * 2 + 10;
         height = CACTUS_HEIGHT;
         break;
+      case "bird_low":
+        width = BIRD_WIDTH;
+        height = BIRD_HEIGHT;
+        y = BIRD_LOW_Y;
+        break;
+      case "bird_high":
+        width = BIRD_WIDTH;
+        height = BIRD_HEIGHT;
+        y = BIRD_HIGH_Y;
+        break;
     }
     
-    return { x: startX, type, width, height };
+    return { x: startX, type, width, height, y };
   }, []);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CONTROLES DO JOGO
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Inicia uma nova partida.
-   */
   const startGame = useCallback(() => {
     if (isPlaying) return;
     
-    // Reseta todo o estado
     setIsPlaying(true);
     setIsGameOver(false);
     setScore(0);
+    currentScoreRef.current = 0;
     setSpeed(INITIAL_SPEED);
     setDinoY(GROUND_Y - DINO_HEIGHT);
     setIsJumping(false);
+    setIsDucking(false);
     velocityRef.current = 0;
     lastScoreCheckRef.current = 0;
     
-    // Gera obstáculos iniciais fora da tela
     const initialObstacles: Obstacle[] = [];
     let x = DINO_CANVAS_WIDTH + 100;
     for (let i = 0; i < 3; i++) {
@@ -184,17 +148,7 @@ export function useDinoGame() {
     setObstacles(initialObstacles);
   }, [isPlaying, generateObstacle]);
 
-  /**
-   * Faz o dinossauro pular.
-   * 
-   * FÍSICA DO PULO:
-   * 1. Aplica velocidade negativa (para cima)
-   * 2. Gravidade reduz essa velocidade a cada frame
-   * 3. Quando velocidade fica positiva, começa a cair
-   * 4. Para quando atinge o chão
-   */
   const jump = useCallback(() => {
-    // Se não está jogando, inicia o jogo
     if (!isPlaying && !isGameOver) {
       startGame();
       return;
@@ -202,16 +156,31 @@ export function useDinoGame() {
     
     if (isGameOver) return;
     
-    // Só pode pular se estiver no chão (ou muito perto)
+    // Não pode pular enquanto abaixado
+    if (isDucking) return;
+    
     if (!isJumping && dinoY >= GROUND_Y - DINO_HEIGHT - 1) {
       setIsJumping(true);
-      velocityRef.current = -JUMP_FORCE; // Negativo = para cima
+      velocityRef.current = -JUMP_FORCE;
     }
-  }, [isPlaying, isGameOver, isJumping, dinoY, startGame]);
+  }, [isPlaying, isGameOver, isJumping, isDucking, dinoY, startGame]);
 
-  /**
-   * Finaliza o jogo (colisão detectada).
-   */
+  const duck = useCallback((isDuckingNow: boolean) => {
+    if (!isPlaying || isGameOver) return;
+    
+    // Não pode abaixar no ar
+    if (isJumping) return;
+    
+    setIsDucking(isDuckingNow);
+    
+    // Ajusta posição Y quando abaixa/levanta
+    if (isDuckingNow) {
+      setDinoY(GROUND_Y - DINO_DUCK_HEIGHT);
+    } else {
+      setDinoY(GROUND_Y - DINO_HEIGHT);
+    }
+  }, [isPlaying, isGameOver, isJumping]);
+
   const endGame = useCallback(() => {
     setIsGameOver(true);
     setIsPlaying(false);
@@ -222,16 +191,15 @@ export function useDinoGame() {
     }
   }, [score, bestScore, setBestScore]);
 
-  /**
-   * Reinicia para o estado inicial (sem começar automaticamente).
-   */
   const resetGame = useCallback(() => {
     setIsPlaying(false);
     setIsGameOver(false);
     setScore(0);
+    currentScoreRef.current = 0;
     setSpeed(INITIAL_SPEED);
     setDinoY(GROUND_Y - DINO_HEIGHT);
     setIsJumping(false);
+    setIsDucking(false);
     velocityRef.current = 0;
     setObstacles([]);
   }, []);
@@ -240,29 +208,30 @@ export function useDinoGame() {
   // DETECÇÃO DE COLISÃO
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Verifica se o dinossauro colidiu com um obstáculo.
-   * Usa hitbox reduzida para ser mais justo com o jogador.
-   * 
-   * AABB Collision Detection (Axis-Aligned Bounding Box):
-   * Dois retângulos colidem se:
-   * - Direita de A > Esquerda de B
-   * - Esquerda de A < Direita de B
-   * - Baixo de A > Topo de B
-   * - Topo de A < Baixo de B
-   */
-  const checkCollision = useCallback((obstacle: Obstacle, currentDinoY: number): boolean => {
+  const checkCollision = useCallback((obstacle: Obstacle, currentDinoY: number, currentDucking: boolean): boolean => {
+    const currentDinoHeight = currentDucking ? DINO_DUCK_HEIGHT : DINO_HEIGHT;
+    
     // Hitbox do dino (reduzida para ser mais justo)
-    const dinoLeft = DINO_X;
+    const dinoLeft = DINO_X + 5;
     const dinoRight = DINO_X + DINO_WIDTH - 10;
     const dinoTop = currentDinoY + 5;
-    const dinoBottom = currentDinoY + DINO_HEIGHT;
+    const dinoBottom = currentDinoY + currentDinoHeight;
     
     // Hitbox do obstáculo
     const obstacleLeft = obstacle.x;
     const obstacleRight = obstacle.x + obstacle.width;
-    const obstacleTop = GROUND_Y - obstacle.height;
-    const obstacleBottom = GROUND_Y;
+    
+    let obstacleTop: number;
+    let obstacleBottom: number;
+    
+    // Pássaros têm posição Y fixa
+    if (obstacle.type === "bird_low" || obstacle.type === "bird_high") {
+      obstacleTop = obstacle.y!;
+      obstacleBottom = obstacle.y! + obstacle.height;
+    } else {
+      obstacleTop = GROUND_Y - obstacle.height;
+      obstacleBottom = GROUND_Y;
+    }
     
     // Verifica sobreposição
     return (
@@ -277,19 +246,6 @@ export function useDinoGame() {
   // GAME LOOP PRINCIPAL
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Loop principal do jogo.
-   * 
-   * Usa requestAnimationFrame para sincronizar com a taxa de
-   * atualização do monitor (~60fps).
-   * 
-   * A cada frame:
-   * 1. Atualiza física do dinossauro
-   * 2. Move obstáculos
-   * 3. Gera novos obstáculos
-   * 4. Atualiza pontuação
-   * 5. Aumenta velocidade periodicamente
-   */
   useEffect(() => {
     if (!isPlaying || isGameOver) {
       if (gameLoopRef.current) {
@@ -303,41 +259,36 @@ export function useDinoGame() {
     const gameLoop = (currentTime: number) => {
       const deltaTime = currentTime - lastTime;
       
-      // Limita a taxa de atualização
       if (deltaTime >= GAME_LOOP_INTERVAL) {
         lastTime = currentTime;
         
         // ═══ FÍSICA DO DINOSSAURO ═══
-        setDinoY(prevY => {
-          // Aplica velocidade à posição
-          let newY = prevY + velocityRef.current;
-          // Aplica gravidade à velocidade
-          velocityRef.current += GRAVITY;
-          
-          // Limita ao chão
-          if (newY >= GROUND_Y - DINO_HEIGHT) {
-            newY = GROUND_Y - DINO_HEIGHT;
-            velocityRef.current = 0;
-            setIsJumping(false);
-          }
-          
-          return newY;
-        });
+        if (!isDucking) {
+          setDinoY(prevY => {
+            let newY = prevY + velocityRef.current;
+            velocityRef.current += GRAVITY;
+            
+            if (newY >= GROUND_Y - DINO_HEIGHT) {
+              newY = GROUND_Y - DINO_HEIGHT;
+              velocityRef.current = 0;
+              setIsJumping(false);
+            }
+            
+            return newY;
+          });
+        }
         
         // ═══ MOVIMENTO DOS OBSTÁCULOS ═══
         setObstacles(prevObstacles => {
           const currentSpeed = speed;
           
-          // Move todos para a esquerda
           let newObstacles = prevObstacles.map(obs => ({
             ...obs,
             x: obs.x - currentSpeed,
           }));
           
-          // Remove os que saíram da tela
           newObstacles = newObstacles.filter(obs => obs.x + obs.width > -50);
           
-          // Gera novo obstáculo se necessário
           const lastObstacle = newObstacles[newObstacles.length - 1];
           if (!lastObstacle || lastObstacle.x < DINO_CANVAS_WIDTH - 100) {
             const gap = MIN_OBSTACLE_GAP + Math.random() * (MAX_OBSTACLE_GAP - MIN_OBSTACLE_GAP);
@@ -351,7 +302,11 @@ export function useDinoGame() {
         });
         
         // ═══ PONTUAÇÃO ═══
-        setScore(prev => prev + POINTS_PER_FRAME);
+        setScore(prev => {
+          const newScore = prev + POINTS_PER_FRAME;
+          currentScoreRef.current = newScore;
+          return newScore;
+        });
         
         // ═══ AUMENTO DE VELOCIDADE ═══
         setScore(prev => {
@@ -364,7 +319,6 @@ export function useDinoGame() {
         });
       }
       
-      // Agenda próximo frame
       gameLoopRef.current = requestAnimationFrame(gameLoop);
     };
     
@@ -375,62 +329,69 @@ export function useDinoGame() {
         cancelAnimationFrame(gameLoopRef.current);
       }
     };
-  }, [isPlaying, isGameOver, speed, generateObstacle]);
+  }, [isPlaying, isGameOver, speed, isDucking, generateObstacle]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // VERIFICAÇÃO DE COLISÕES
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Verifica colisões a cada mudança de posição.
-   */
   useEffect(() => {
     if (!isPlaying || isGameOver) return;
     
     for (const obstacle of obstacles) {
-      if (checkCollision(obstacle, dinoY)) {
+      if (checkCollision(obstacle, dinoY, isDucking)) {
         endGame();
         break;
       }
     }
-  }, [obstacles, dinoY, isPlaying, isGameOver, checkCollision, endGame]);
+  }, [obstacles, dinoY, isDucking, isPlaying, isGameOver, checkCollision, endGame]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CONTROLES DE TECLADO
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Captura teclas de pulo: Espaço, Seta para cima, W
-   */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Space" || e.code === "ArrowUp" || e.key === "w" || e.key === "W") {
-        e.preventDefault(); // Evita scroll da página
+        e.preventDefault();
         jump();
+      }
+      if (e.code === "ArrowDown" || e.key === "s" || e.key === "S") {
+        e.preventDefault();
+        duck(true);
+      }
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "ArrowDown" || e.key === "s" || e.key === "S") {
+        duck(false);
       }
     };
     
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [jump]);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [jump, duck]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // RETORNO DO HOOK
   // ═══════════════════════════════════════════════════════════════════════════
 
   return {
-    // ═══ ESTADO ═══
     isPlaying,
     isGameOver,
     score: Math.floor(score),
     bestScore,
     dinoY,
     isJumping,
+    isDucking,
     obstacles,
     speed,
-    
-    // ═══ AÇÕES ═══
     jump,
+    duck,
     startGame,
     resetGame,
   };
