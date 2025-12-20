@@ -70,6 +70,72 @@ export type Database = {
         }
         Relationships: []
       }
+      user_achievements: {
+        Row: {
+          achievement_id: string
+          id: string
+          unlocked_at: string
+          user_id: string
+        }
+        Insert: {
+          achievement_id: string
+          id?: string
+          unlocked_at?: string
+          user_id: string
+        }
+        Update: {
+          achievement_id?: string
+          id?: string
+          unlocked_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_stats: {
+        Row: {
+          dino_best_score: number
+          dino_games_played: number
+          id: string
+          memory_best_moves: Json
+          memory_best_time: Json
+          memory_games_played: number
+          snake_best_score: number
+          snake_games_played: number
+          snake_max_length: number
+          total_games_played: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          dino_best_score?: number
+          dino_games_played?: number
+          id?: string
+          memory_best_moves?: Json
+          memory_best_time?: Json
+          memory_games_played?: number
+          snake_best_score?: number
+          snake_games_played?: number
+          snake_max_length?: number
+          total_games_played?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          dino_best_score?: number
+          dino_games_played?: number
+          id?: string
+          memory_best_moves?: Json
+          memory_best_time?: Json
+          memory_games_played?: number
+          snake_best_score?: number
+          snake_games_played?: number
+          snake_max_length?: number
+          total_games_played?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -43,9 +43,11 @@ export function MemoryGame({ onBack }: MemoryGameProps) {
 
   useEffect(() => {
     if (hasWon && !hasCheckedAchievements) {
-      const unlocked = checkAndUnlock({ game: "memory", moves, time, difficulty });
-      if (unlocked.length > 0) setUnlockedAchievement(unlocked[0]);
       setHasCheckedAchievements(true);
+      
+      checkAndUnlock({ game: "memory", moves, time, difficulty }).then((unlocked) => {
+        if (unlocked.length > 0) setUnlockedAchievement(unlocked[0]);
+      });
 
       if (isAuthenticated && profile) {
         addScore({

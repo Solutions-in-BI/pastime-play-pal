@@ -9,8 +9,9 @@
 
 import { Achievement } from "@/types/achievements";
 
-/** Chave do localStorage para dados de conquistas */
+/** @deprecated Não mais usado - conquistas salvas no banco por usuário */
 export const ACHIEVEMENTS_STORAGE_KEY = "playerAchievements";
+/** @deprecated Não mais usado - estatísticas salvas no banco por usuário */
 export const PLAYER_STATS_STORAGE_KEY = "playerStats";
 
 /** Lista de todas as conquistas do jogo */

@@ -55,16 +55,16 @@ export function SnakeGame({ onBack }: SnakeGameProps) {
   // Verifica conquistas e salva score quando game over
   useEffect(() => {
     if (isGameOver && score > 0 && !hasCheckedAchievements) {
-      const unlocked = checkAndUnlock({
+      setHasCheckedAchievements(true);
+      
+      checkAndUnlock({
         game: "snake",
         score,
+      }).then((unlocked) => {
+        if (unlocked.length > 0) {
+          setUnlockedAchievement(unlocked[0]);
+        }
       });
-
-      if (unlocked.length > 0) {
-        setUnlockedAchievement(unlocked[0]);
-      }
-
-      setHasCheckedAchievements(true);
 
       // Salva automaticamente se logado e fez pontos significativos
       if (isAuthenticated && profile && score >= 30) {
