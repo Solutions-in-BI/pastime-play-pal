@@ -6,6 +6,7 @@ import {
   DINO_X,
   DINO_WIDTH,
   DINO_HEIGHT,
+  DINO_DUCK_HEIGHT,
   Obstacle,
 } from "@/constants/dino";
 
@@ -15,11 +16,13 @@ import {
  * ===========================================
  * 
  * Canvas que renderiza o jogo do dinossauro.
+ * Inclui renderização de pássaros voadores.
  */
 
 interface DinoCanvasProps {
   dinoY: number;
   isJumping: boolean;
+  isDucking: boolean;
   obstacles: Obstacle[];
   isPlaying: boolean;
   isGameOver: boolean;
@@ -27,7 +30,8 @@ interface DinoCanvasProps {
 
 export function DinoCanvas({ 
   dinoY, 
-  isJumping, 
+  isJumping,
+  isDucking,
   obstacles, 
   isPlaying,
   isGameOver 
@@ -66,18 +70,26 @@ export function DinoCanvas({
     }
 
     // Desenha o dinossauro
-    drawDino(ctx, DINO_X, dinoY, isJumping, frameRef.current);
+    if (isDucking) {
+      drawDinoDucking(ctx, DINO_X, dinoY, frameRef.current);
+    } else {
+      drawDino(ctx, DINO_X, dinoY, isJumping, frameRef.current);
+    }
 
     // Desenha obstáculos
     obstacles.forEach(obstacle => {
-      drawObstacle(ctx, obstacle);
+      if (obstacle.type === "bird_low" || obstacle.type === "bird_high") {
+        drawBird(ctx, obstacle, frameRef.current);
+      } else {
+        drawObstacle(ctx, obstacle);
+      }
     });
 
     // Incrementa frame para animação
     if (isPlaying && !isGameOver) {
       frameRef.current++;
     }
-  }, [dinoY, isJumping, obstacles, isPlaying, isGameOver]);
+  }, [dinoY, isJumping, isDucking, obstacles, isPlaying, isGameOver]);
 
   return (
     <canvas
@@ -91,7 +103,7 @@ export function DinoCanvas({
 }
 
 /**
- * Desenha o dinossauro
+ * Desenha o dinossauro normal
  */
 function drawDino(
   ctx: CanvasRenderingContext2D, 
@@ -100,7 +112,7 @@ function drawDino(
   isJumping: boolean,
   frame: number
 ) {
-  ctx.fillStyle = "#10b981"; // Verde primário
+  ctx.fillStyle = "#10b981";
   
   // Corpo principal
   ctx.fillRect(x + 10, y + 5, 25, 30);
@@ -126,11 +138,9 @@ function drawDino(
   
   // Pernas (animadas)
   if (isJumping) {
-    // Pernas esticadas
     ctx.fillRect(x + 12, y + 35, 6, 12);
     ctx.fillRect(x + 24, y + 35, 6, 12);
   } else {
-    // Pernas alternando
     const legOffset = Math.floor(frame / 5) % 2 === 0;
     if (legOffset) {
       ctx.fillRect(x + 12, y + 35, 6, 12);
@@ -143,26 +153,106 @@ function drawDino(
 }
 
 /**
+ * Desenha o dinossauro agachado
+ */
+function drawDinoDucking(
+  ctx: CanvasRenderingContext2D, 
+  x: number, 
+  y: number, 
+  frame: number
+) {
+  ctx.fillStyle = "#10b981";
+  
+  // Corpo achatado (mais largo e baixo)
+  ctx.fillRect(x, y, 44, 18);
+  
+  // Cabeça na frente
+  ctx.fillRect(x + 30, y - 5, 18, 15);
+  
+  // Olho
+  ctx.fillStyle = "#1a1a2e";
+  ctx.fillRect(x + 40, y - 2, 4, 4);
+  
+  // Boca
+  ctx.fillRect(x + 44, y + 5, 6, 2);
+  
+  ctx.fillStyle = "#10b981";
+  
+  // Cauda
+  ctx.fillRect(x - 8, y + 3, 12, 6);
+  
+  // Perninhas curtas
+  const legOffset = Math.floor(frame / 5) % 2 === 0;
+  if (legOffset) {
+    ctx.fillRect(x + 8, y + 18, 6, 7);
+    ctx.fillRect(x + 28, y + 18, 6, 7);
+  } else {
+    ctx.fillRect(x + 8, y + 18, 6, 7);
+    ctx.fillRect(x + 28, y + 18, 6, 7);
+  }
+}
+
+/**
+ * Desenha um pássaro voador
+ */
+function drawBird(ctx: CanvasRenderingContext2D, obstacle: Obstacle, frame: number) {
+  const x = obstacle.x;
+  const y = obstacle.y!;
+  
+  ctx.fillStyle = "#f59e0b"; // Amarelo/laranja
+  
+  // Corpo do pássaro
+  ctx.fillRect(x + 10, y + 10, 26, 12);
+  
+  // Cabeça
+  ctx.fillRect(x + 32, y + 8, 12, 14);
+  
+  // Bico
+  ctx.fillStyle = "#ef4444";
+  ctx.fillRect(x + 44, y + 12, 6, 4);
+  
+  // Olho
+  ctx.fillStyle = "#1a1a2e";
+  ctx.fillRect(x + 38, y + 10, 3, 3);
+  
+  ctx.fillStyle = "#f59e0b";
+  
+  // Asas animadas (bate asas)
+  const wingUp = Math.floor(frame / 8) % 2 === 0;
+  if (wingUp) {
+    // Asa para cima
+    ctx.fillRect(x + 15, y, 16, 10);
+    ctx.fillRect(x + 18, y - 5, 10, 6);
+  } else {
+    // Asa para baixo
+    ctx.fillRect(x + 15, y + 22, 16, 8);
+    ctx.fillRect(x + 18, y + 28, 10, 5);
+  }
+  
+  // Cauda
+  ctx.fillRect(x, y + 12, 12, 6);
+  ctx.fillRect(x - 4, y + 10, 6, 4);
+  ctx.fillRect(x - 4, y + 16, 6, 4);
+}
+
+/**
  * Desenha um obstáculo (cacto)
  */
 function drawObstacle(ctx: CanvasRenderingContext2D, obstacle: Obstacle) {
   const y = GROUND_Y - obstacle.height;
   
-  ctx.fillStyle = "#ef4444"; // Vermelho
+  ctx.fillStyle = "#ef4444";
   
   if (obstacle.type === "small") {
-    // Cacto pequeno
     ctx.fillRect(obstacle.x + 8, y, 9, obstacle.height);
     ctx.fillRect(obstacle.x, y + 15, 8, 6);
     ctx.fillRect(obstacle.x + 17, y + 10, 8, 6);
   } else if (obstacle.type === "large") {
-    // Cacto grande
     ctx.fillRect(obstacle.x + 12, y, 11, obstacle.height);
     ctx.fillRect(obstacle.x, y + 20, 12, 8);
     ctx.fillRect(obstacle.x + 23, y + 15, 12, 8);
     ctx.fillRect(obstacle.x + 5, y + 35, 8, 6);
-  } else {
-    // Cacto duplo
+  } else if (obstacle.type === "double") {
     ctx.fillRect(obstacle.x + 8, y, 9, obstacle.height);
     ctx.fillRect(obstacle.x, y + 15, 8, 6);
     ctx.fillRect(obstacle.x + 43, y, 9, obstacle.height);

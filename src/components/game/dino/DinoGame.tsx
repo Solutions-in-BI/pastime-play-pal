@@ -16,7 +16,7 @@ interface DinoGameProps {
 }
 
 export function DinoGame({ onBack }: DinoGameProps) {
-  const { isPlaying, isGameOver, score, bestScore, dinoY, isJumping, obstacles, jump, resetGame } = useDinoGame();
+  const { isPlaying, isGameOver, score, bestScore, dinoY, isJumping, isDucking, obstacles, jump, duck, resetGame } = useDinoGame();
   const { checkAndUnlock } = useAchievements();
   const { addScore } = useLeaderboard("dino");
   const { profile, isAuthenticated } = useAuth();
@@ -86,6 +86,7 @@ export function DinoGame({ onBack }: DinoGameProps) {
         <DinoCanvas
           dinoY={dinoY}
           isJumping={isJumping}
+          isDucking={isDucking}
           obstacles={obstacles}
           isPlaying={isPlaying}
           isGameOver={isGameOver}
@@ -125,8 +126,11 @@ export function DinoGame({ onBack }: DinoGameProps) {
       </div>
 
       {/* Instruções */}
-      <p className="text-center text-muted-foreground text-sm mb-6">
-        Use ESPAÇO, ↑ ou W para pular • Toque na tela em dispositivos móveis
+      <p className="text-center text-muted-foreground text-sm mb-4">
+        ESPAÇO / ↑ / W para pular • ↓ / S para abaixar
+      </p>
+      <p className="text-center text-muted-foreground text-xs mb-6">
+        🐦 Após 100 pts: pássaros! Pule os baixos, abaixe para os altos.
       </p>
 
       {/* Botões de Ação */}

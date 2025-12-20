@@ -26,6 +26,9 @@ export const DINO_WIDTH = 44;
 /** Altura do dino */
 export const DINO_HEIGHT = 47;
 
+/** Altura do dino agachado */
+export const DINO_DUCK_HEIGHT = 25;
+
 /** Posição X do dino (fixo) */
 export const DINO_X = 50;
 
@@ -48,6 +51,25 @@ export const CACTUS_LARGE_WIDTH = 35;
 
 /** Altura do cacto grande */
 export const CACTUS_LARGE_HEIGHT = 70;
+
+// ============ PÁSSAROS ============
+
+/** Largura do pássaro */
+export const BIRD_WIDTH = 46;
+
+/** Altura do pássaro */
+export const BIRD_HEIGHT = 30;
+
+/** Altura de voo baixo (precisa pular) */
+export const BIRD_LOW_Y = GROUND_Y - 30;
+
+/** Altura de voo alto (precisa abaixar) */
+export const BIRD_HIGH_Y = GROUND_Y - 75;
+
+/** Score mínimo para pássaros aparecerem */
+export const BIRD_MIN_SCORE = 100;
+
+// ============ DISTÂNCIAS ============
 
 /** Distância mínima entre obstáculos */
 export const MIN_OBSTACLE_GAP = 300;
@@ -79,11 +101,13 @@ export const DINO_STORAGE_KEY = "dinoBestScore";
 
 // ============ TIPOS DE OBSTÁCULOS ============
 
-export type ObstacleType = "small" | "large" | "double";
+export type ObstacleType = "small" | "large" | "double" | "bird_low" | "bird_high";
 
 export interface Obstacle {
   x: number;
   type: ObstacleType;
   width: number;
   height: number;
+  /** Posição Y do pássaro (undefined para cactos) */
+  y?: number;
 }
